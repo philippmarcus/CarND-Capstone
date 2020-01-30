@@ -87,15 +87,12 @@ class TLDetector(object):
         if self.state != state:
             self.state_count = 0
             self.state = state
-            print("NOT PUBLISHING!!!")
         elif self.state_count >= STATE_COUNT_THRESHOLD:
             self.last_state = self.state
             light_wp = light_wp if state == TrafficLight.RED else -1
             self.last_wp = light_wp
-            print("PUBLISHING ", light_wp)
             self.upcoming_red_light_pub.publish(Int32(light_wp))
         else:
-            print("PUBLISHING ", self.last_wp)
             self.upcoming_red_light_pub.publish(Int32(self.last_wp))
         self.state_count += 1
 
@@ -185,7 +182,6 @@ class TLDetector(object):
         light_wp = -1
         closest_wp_dist = 999999999
         # iterate over the next waypoints
-        print("searching for closest traffic light")
         for idx in range(car_position, car_position+200):
             # Iterate over all traffic lights a
             for tl_id in range(len(self.lights)):

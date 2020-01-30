@@ -57,7 +57,7 @@ class DBWNode(object):
         # Create `Controller` object
         self.controller = Controller()
 
-        # TODO: Subscribe to all the topics you need to
+        # Subscribe to all the topics you need to
         self.sub_twist_cmd        = rospy.Subscriber('/twist_cmd', TwistStamped, \
                                                      self.callback_twist_cmd)    
         self.sub_current_velocity = rospy.Subscriber('/current_velocity', TwistStamped, \
@@ -78,18 +78,6 @@ class DBWNode(object):
     """
     def callback_twist_cmd(self, data):
         self.last_twist_cmd = data
-        """
-        data.header.stamp
-        data.header.frame_id
-        
-        data.twist.linear.x
-        data.twist.linear.y
-        data.twist.linear.z
-        
-        data.twist.angular.x
-        data.twist.angular.y
-        data.twist.angular.z
-        """
         pass
     
     """
@@ -97,18 +85,6 @@ class DBWNode(object):
     """
     def callback_current_velocity(self, data):
         self.last_current_velocity = data
-        """
-        data.header.stamp
-        data.header.frame_id
-        
-        data.twist.linear.x
-        data.twist.linear.y
-        data.twist.linear.z
-        
-        data.twist.angular.x
-        data.twist.angular.y
-        data.twist.angular.z
-        """
         pass
     
     """
@@ -116,9 +92,6 @@ class DBWNode(object):
     """
     def callback_dbw_enabled(self, data):
         self.last_dbw_enabled = data
-        """
-        data.data
-        """
         pass
 
     def loop(self):
@@ -137,7 +110,9 @@ class DBWNode(object):
                                                                     self.last_current_velocity.twist.angular, \
                                                                     self.last_dbw_enabled.data, \
                                                                     sample_time)
+                
                 # Publish the steering commands
+                print("COMMAND throttle= {}, brake= {}, steering={}".format(throttle, brake, steering))
                 self.publish(throttle, brake, steering)
             rate.sleep()
 

@@ -32,15 +32,12 @@ class Controller(object):
         """
                 
         # Define controllers @TODO Tune parameters
-        self.controller_throttle = PID(kp=1.0, ki=1.0, kd=1.0, mn=0., mx=1.)
-        self.controller_break = PID(kp=1.0, ki=1.0, kd=1.0, mn=0., mx=3250.)
-        self.controller_steer = YawController(wheel_base, steer_ratio, min_speed, max_lat_accel, max_steer_angle)
-        #PID(kp=1.0, ki=1.0, kd=1.0, mn=-8.2, mx=8.2)
-        
+        self.controller_steer = YawController(wheel_base, steer_ratio, min_speed, max_lat_accel, max_steer_angle)  
+        self.controller_acceleration = PID(kp=1.0, ki=1.0, kd=1.0, mn=rospy.get_param('~decel_limit'), mx=rospy.get_param('~accel_limit'))
+
         # Define low pass filters @TODO Tune parameters
-        self.lowpass_throttle = LowPassFilter(tau=1.0, ts=1.0)
-        self.lowpass_break = LowPassFilter(tau=1.0, ts=1.0)
-        self.lowpass_steer = LowPassFilter(tau=3.0, ts=1.0)
+        self.lowpass_steer = LowPassFilter(tau=5.0, ts=1.0)
+        self.lowpass_acceleration = LowPassFilter(tau=2.0, ts=1.0)        
         pass
     
     """
@@ -52,33 +49,36 @@ class Controller(object):
     
     def control(self, proposed_linear_v, proposed_angular_v,\
                       current_linear_v, current_angular_v, \
-                      is_dbw_enabled, sample_time):
-
-        linear_velocity = self._get_magn(proposed_linear_v)
-        angular_velocity = proposed_angular_v.z
+                      is_dbw_enabled, sample_time,):
+        
+       
+        # Values from current run
+        desired_velocity = self._get_magn(proposed_linear_v)
+        desired_angular_velocity = proposed_angular_v.z
         current_velocity = self._get_magn(current_linear_v)
         
-        # Derive error in linear velocity for throttle and break
-        error_v = current_velocity - linear_velocity
-        error_throttle = -1. *error_v # negative value if too fast
-        error_break = error_v 
-        
-        print("error_throttle: ", error_throttle)
-        
-        
-        # Throttle Command
-        cmd_throttle = self.controller_throttle.step(error_throttle, sample_time)
-        cmd_throttle = self.lowpass_throttle.filt(cmd_throttle)
-        print("cmd_throttle:", cmd_throttle)
-        
-        # Break Command
-        cmd_break = self.controller_break.step(error_break, sample_time)
-        cmd_break = self.lowpass_break.filt(cmd_break)
+        # Velocity error - steered by acceleration
+        error_vel = desired_velocity - current_velocity 
+        print("desired_velocity= {} \t current_velocity= {} \t error_vel={}".format(desired_velocity, current_velocity, error_vel))
 
         # Steering Command
-        cmd_steer = self.controller_steer.get_steering(linear_velocity, angular_velocity, current_velocity)
+        cmd_steer = self.controller_steer.get_steering(desired_velocity, desired_angular_velocity, current_velocity)
         cmd_steer = self.lowpass_steer.filt(cmd_steer)
-        print("cmd_steer:", cmd_steer)
-        print("===")
-        
-        return cmd_throttle, cmd_break, cmd_steer
+
+        # Acceleration Command
+        cmd_accel = self.controller_acceleration.step(error_vel, sample_time)
+        cmd_accel = self.lowpass_acceleration.filt(cmd_accel)
+
+        # Convert acceleration to throttle and brake
+        cmd_throttle = 0.0
+        cmd_brake = 0.0
+        if cmd_accel > 0.:
+            # Accelerate proportional to accel cmd
+            cmd_throttle = cmd_accel / rospy.get_param('~accel_limit')
+        else:
+            # Brake - compute needed torque
+            brake_torque =  rospy.get_param('~wheel_radius') * (rospy.get_param('~vehicle_mass') + rospy.get_param('~fuel_capacity')*GAS_DENSITY)  * -1. * cmd_accel
+            
+            cmd_brake = min(brake_torque, 3250.)
+
+        return cmd_throttle, cmd_brake, cmd_steer

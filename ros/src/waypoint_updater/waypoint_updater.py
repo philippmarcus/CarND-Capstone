@@ -71,21 +71,9 @@ class WaypointUpdater(object):
         print("setting last_base_waypoints")
         self.last_base_waypoints = msg
         
-   def velocity_cb(self, data):
+    def velocity_cb(self, data):
         self.last_current_velocity = data
-        """
-        data.header.stamp
-        data.header.frame_id
-        
-        data.twist.linear.x
-        data.twist.linear.y
-        data.twist.linear.z
-        
-        data.twist.angular.x
-        data.twist.angular.y
-        data.twist.angular.z
-        """
-        
+
     def traffic_wp_cb(self, msg):
         print("SETTING TRAFFIC WP", msg.data)
         self.traffic_wp = msg.data
@@ -108,10 +96,10 @@ class WaypointUpdater(object):
             vx = self.last_current_velocity.twist.linear.x
             vy = self.last_current_velocity.twist.linear.y
             current_speed = math.sqrt(vx **2 + vy**2)
-            current_speed_mph = (current_speed * 1609.34) / (60 * 60)
             
-            #print("last current pose is x={} \t y={}".format(car.position.x, car.position.y, car.position.z))
-             
+            current_speed_mph = current_speed * (60 * 60) / 1609.34
+            print("-----> Current Speed (m/s)= {} (mph)={}".format( current_speed,current_speed_mph ))
+
             # compute global heading angle of car
             quaternion = (car.pose.orientation.x, car.pose.orientation.y, car.pose.orientation.z, car.pose.orientation.w)
             _, _, car_yaw = tf.transformations.euler_from_quaternion(quaternion)  
@@ -139,75 +127,30 @@ class WaypointUpdater(object):
             
             # select waypoints only until traffic obstacle and stop
             print("self.traffic_wp", self.traffic_wp)
-            end_wp = closest_idx+LOOKAHEAD_WPS if self.traffic_wp == -1 else self.traffic_wp
+            end_wp = closest_idx + LOOKAHEAD_WPS if self.traffic_wp == -1 else self.traffic_wp
+            #end_wp = closest_idx+LOOKAHEAD_WPS
             selected_waypoints = self.last_base_waypoints.waypoints[closest_idx : end_wp]
-            
-            """
-            Update the speed of the waypoints to allow
-            for a smooth stop at the halt lane
-            """
+
             # adapt target speed to slow down in front of obstacles
-            target_speed_mph = 0. if self.traffic_wp != -1 else (50.0 * 1609.34) / (60 * 60)
-            
-            # Speed change for the next waypoints in order to reach the goal
-            delta_v = (target_speed_mph - current_speed_mph) / len(selected_waypoints)
+            max_speed = 50. * 1609.340 / (60. * 60.)
+            target_speed_mps = 0. if self.traffic_wp != -1 else  max_speed
+            delta_v = (target_speed_mps - current_speed) / max(min(len(selected_waypoints)-1, 60), 1)
+            print("==>delta_v: ", delta_v)
             
             # Smooth stopping - lineary reduce speed to stopping point
-            for i in range(len(selected_waypoints)): 
-                selected_waypoints[i].twist.twist.linear.x = current_speed_mph + i*delta_v
-    
-                        
-            print("overall waypoints: ", len(self.last_base_waypoints.waypoints))
-            print("selected_waypoints: ", len(selected_waypoints))
-            print("start index is: ", closest_idx) 
-            
-            # Reset last position to wait for next update
-            #self.last_current_pose = None
-            
+            for i in range(len(selected_waypoints)):
+                #cur_wp_speed = min(max(current_speed + (i+1)*delta_v, 0), target_speed_mps)
+                cur_wp_speed = 0. if self.traffic_wp != -1 else  max_speed
+                #cur_wp_speed = 50. * 1609.340 / (60. * 60.)
+                print("------ wp {} ----> {}".format(i, cur_wp_speed))
+                selected_waypoints[i].twist.twist.linear.x = cur_wp_speed
+
             # publish result
             lane = Lane()
             lane.header.frame_id = '/world'
             lane.header.stamp = rospy.Time(0)
             lane.waypoints = selected_waypoints
             self.final_waypoints_pub.publish(lane)
-            
-            
-            
-            
-            """
-            # Last car position
-            positon = self.last_current_pose.pose.position
-            orientation = self.last_current_pose.pose.orientation
-            
-            # compute global angle of waypoint in coordinate system
-            
-            self.last_current_pose.pose.position.x
-            self.last_current_pose.pose.position.y
-            self.last_current_pose.pose.position.z
-            self.last_current_pose.pose.orientation.x
-            self.last_current_pose.pose.orientation.y
-            self.last_current_pose.pose.orientation.z
-            self.last_current_pose.pose.orientation.w
-
-        
-            # Last global waypoints list
-            self.last_base_waypoints.waypoints[0].pose.pose.position.x
-            self.last_base_waypoints.waypoints[0].pose.pose.position.y
-            self.last_base_waypoints.waypoints[0].pose.pose.position.z
-            self.last_base_waypoints.waypoints[0].pose.pose.orientation.x
-            self.last_base_waypoints.waypoints[0].pose.pose.orientation.y
-            self.last_base_waypoints.waypoints[0].pose.pose.orientation.z
-            self.last_base_waypoints.waypoints[0].pose.pose.orientation.w
-            # Speed is described by twist. Angluar is the angular speed. Linear the linear speed.
-            self.last_base_waypoints.waypoints[0].twist.twist.linear.x
-            self.last_base_waypoints.waypoints[0].twist.twist.linear.y
-            self.last_base_waypoints.waypoints[0].twist.twist.linear.z
-            self.last_base_waypoints.waypoints[0].twist.twist.angular.x
-            self.last_base_waypoints.waypoints[0].twist.twist.angular.y
-            self.last_base_waypoints.waypoints[0].twist.twist.angular.z
-            """
-            
-
         # find out the closest forward waypoinit
         pass
 
