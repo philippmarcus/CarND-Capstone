@@ -24,7 +24,9 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 '''
 
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
-
+WAYPOINT_HZ = 10
+MAX_DECELERATION = rospy.get_param('/dbw_node/decel_limit')* 0.5
+HALT_DISTANCE = 28.
 
 class WaypointUpdater(object):
     def __init__(self):
@@ -55,95 +57,103 @@ class WaypointUpdater(object):
         
     def loop(self):
         pass
-        rate = rospy.Rate(10)
+        rate = rospy.Rate(WAYPOINT_HZ)
         while not rospy.is_shutdown():
             self.publish_next_waypoints()
             rate.sleep()
 
     def pose_cb(self, msg):
-        # TODO: Implement
-        print("setting last_current_pose")
-        self.last_current_pose = msg
-        
+        self.last_current_pose = msg       
 
     def waypoints_cb(self, msg):
-        # TODO: Implement
-        print("setting last_base_waypoints")
         self.last_base_waypoints = msg
         
     def velocity_cb(self, data):
         self.last_current_velocity = data
 
     def traffic_wp_cb(self, msg):
-        print("SETTING TRAFFIC WP", msg.data)
         self.traffic_wp = msg.data
         
-    def map_wp_to_angle(car_pos, waypoint):
-        pass
+    def closest_forward_waypoint(self, car):
+        # compute global heading angle of car
+        quaternion = (car.pose.orientation.x, car.pose.orientation.y, car.pose.orientation.z, car.pose.orientation.w)
+        _, _, car_yaw = tf.transformations.euler_from_quaternion(quaternion)  
+
+        # Find index of closest candidate waypoint
+        closest_idx = -1
+        closest_dist = 999999999999
+
+        for idx in range(len(self.last_base_waypoints.waypoints)):
+            wp = self.last_base_waypoints.waypoints[idx]
+
+            # Check if it has a smaller distance than the observed WPs
+            this_wp_dist = math.sqrt((wp.pose.pose.position.y - car.pose.position.y)**2 + \
+                                     (wp.pose.pose.position.x - car.pose.position.x)**2)
+            if this_wp_dist < closest_dist:
+                wp_glob_angle = math.atan2(wp.pose.pose.position.y - car.pose.position.y,\
+                                           wp.pose.pose.position.x - car.pose.position.x)
+
+                # Check if the wp is in front of the car
+                if abs(car_yaw - wp_glob_angle) > math.pi/4:
+                    closest_idx +=1
+                    closest_dist = this_wp_dist
+        return closest_idx 
+    
+    def normal_speed(self, car, selected_waypoints):
+        #print("NORMAL SPEED")
+        # Update the speed of all waypoints to maximum speed
+        max_speed = 48. * 1609.340 / (60. * 60.)
+        for i in range(len(selected_waypoints)):
+            self.set_waypoint_velocity(selected_waypoints, i, max_speed)
+        return selected_waypoints
+    
+    def decelerate(self, car, selected_waypoints, obstacle_id):
+        #print("BRAKING")
+        assert 0 <= obstacle_id <= len(selected_waypoints)
         
+        car_vx = self.last_current_velocity.twist.linear.x
+        car_vy = self.last_current_velocity.twist.linear.y
+        car_speed = math.sqrt(car_vx **2 + car_vy**2)
+        max_speed = 48. * 1609.340 / (60. * 60.)
+        #print ("CURRENT CAR SPEED - {}".format(car_speed))
+        
+        # all waypoints after the obstacle to 0
+        for i in range(obstacle_id, len(selected_waypoints)):
+            self.set_waypoint_velocity(selected_waypoints, i, 0.0)
+        
+        # backwards from obstacle to car position
+        for i in reversed(range(0, obstacle_id)):
+            dist_to_obstacle = max(self.distance(selected_waypoints, i, obstacle_id) - HALT_DISTANCE, 0.0)
+            this_wp_speed = min(math.sqrt(0.0 - 2. * MAX_DECELERATION * dist_to_obstacle), max_speed)
+            #print("--> wp {} \t set to speed {} \t (distance to obstacle is {})".format(i, this_wp_speed, dist_to_obstacle))
+            self.set_waypoint_velocity(selected_waypoints, i, this_wp_speed)
+        return selected_waypoints
     
     def publish_next_waypoints(self):
         # get the current angle and position of the car
-        print("publish_next_waypoints called")
         if self.last_current_pose is not None and \
             self.last_base_waypoints is not None and \
                 self.traffic_wp is not None and \
                     self.last_current_velocity is not None:
             
+            
+            # The car
             car = self.last_current_pose
             
-            # Compute current speed
-            vx = self.last_current_velocity.twist.linear.x
-            vy = self.last_current_velocity.twist.linear.y
-            current_speed = math.sqrt(vx **2 + vy**2)
+            # Select waypoints
+            forward_wp_id = self.closest_forward_waypoint(car)
+            selected_waypoints = self.last_base_waypoints.waypoints[forward_wp_id : forward_wp_id + LOOKAHEAD_WPS]
             
-            current_speed_mph = current_speed * (60 * 60) / 1609.34
-            print("-----> Current Speed (m/s)= {} (mph)={}".format( current_speed,current_speed_mph ))
-
-            # compute global heading angle of car
-            quaternion = (car.pose.orientation.x, car.pose.orientation.y, car.pose.orientation.z, car.pose.orientation.w)
-            _, _, car_yaw = tf.transformations.euler_from_quaternion(quaternion)  
+            # Check for obstacles ahead
+            is_obstacle_ahead = True if forward_wp_id < self.traffic_wp else False
+            obstacle_id = self.traffic_wp  - forward_wp_id if is_obstacle_ahead else -1
             
-            # Find index of closest candidate waypoint
-            closest_idx = -1
-            closest_dist = 999999999999
+            print("CAR CURRENTLY AT {} \t OBSTACLE AT {}".format(forward_wp_id, self.traffic_wp))
             
-            for idx in range(len(self.last_base_waypoints.waypoints)):
-                #if wp_is_candidate[idx] and wp_rel_dist[idx] < closest_dist:
-                wp = self.last_base_waypoints.waypoints[idx]
-                
-                # Check if it has a smaller distance than the observed WPs
-                this_wp_dist = math.sqrt((wp.pose.pose.position.y - car.pose.position.y)**2 + \
-                                                   (wp.pose.pose.position.x - car.pose.position.x)**2)
-                if this_wp_dist < closest_dist:
-                    
-                    wp_glob_angle = math.atan2(wp.pose.pose.position.y - car.pose.position.y,\
-                                          wp.pose.pose.position.x - car.pose.position.x)
-                    
-                    # Check if the wp is in front of the car
-                    if abs(car_yaw - wp_glob_angle) > math.pi/4:
-                        closest_idx +=1
-                        closest_dist = this_wp_dist
-            
-            # select waypoints only until traffic obstacle and stop
-            print("self.traffic_wp", self.traffic_wp)
-            end_wp = closest_idx + LOOKAHEAD_WPS if self.traffic_wp == -1 else self.traffic_wp
-            #end_wp = closest_idx+LOOKAHEAD_WPS
-            selected_waypoints = self.last_base_waypoints.waypoints[closest_idx : end_wp]
-
-            # adapt target speed to slow down in front of obstacles
-            max_speed = 50. * 1609.340 / (60. * 60.)
-            target_speed_mps = 0. if self.traffic_wp != -1 else  max_speed
-            delta_v = (target_speed_mps - current_speed) / max(min(len(selected_waypoints)-1, 60), 1)
-            print("==>delta_v: ", delta_v)
-            
-            # Smooth stopping - lineary reduce speed to stopping point
-            for i in range(len(selected_waypoints)):
-                #cur_wp_speed = min(max(current_speed + (i+1)*delta_v, 0), target_speed_mps)
-                cur_wp_speed = 0. if self.traffic_wp != -1 else  max_speed
-                #cur_wp_speed = 50. * 1609.340 / (60. * 60.)
-                print("------ wp {} ----> {}".format(i, cur_wp_speed))
-                selected_waypoints[i].twist.twist.linear.x = cur_wp_speed
+            if is_obstacle_ahead:
+                selected_waypoints = self.decelerate(car, selected_waypoints, obstacle_id)
+            else:
+                selected_waypoints = self.normal_speed(car, selected_waypoints)
 
             # publish result
             lane = Lane()
@@ -175,7 +185,18 @@ class WaypointUpdater(object):
             dist += dl(waypoints[wp1].pose.pose.position, waypoints[i].pose.pose.position)
             wp1 = i
         return dist
-
+    
+    """
+    Compute the acceleration to transform speed v0 to speed v1
+    within a distance of delta_s
+    """
+    """
+    def get_acceleration(self, v0, v1, delta_s):
+        return (v1**2 - v0**2) / (2. * delta_s)
+    
+    def get_next_velocity(self, v0, a0, delta_s):
+        return math.sqrt(v0**2 + 2 * a0 * delta_s)
+    """
 
 if __name__ == '__main__':
     try:
