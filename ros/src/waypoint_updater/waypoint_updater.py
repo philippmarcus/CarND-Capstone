@@ -26,7 +26,7 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 WAYPOINT_HZ = 10
 MAX_DECELERATION = rospy.get_param('/dbw_node/decel_limit')* 0.5
-HALT_DISTANCE = 28.
+HALT_DISTANCE = 5.
 
 class WaypointUpdater(object):
     def __init__(self):
@@ -109,6 +109,7 @@ class WaypointUpdater(object):
     
     def decelerate(self, car, selected_waypoints, obstacle_id):
         #print("BRAKING")
+        print("obstacle_id={} \t len(selected_waypoints)={}".format(obstacle_id, len(selected_waypoints)))
         assert 0 <= obstacle_id <= len(selected_waypoints)
         
         car_vx = self.last_current_velocity.twist.linear.x
@@ -135,8 +136,7 @@ class WaypointUpdater(object):
             self.last_base_waypoints is not None and \
                 self.traffic_wp is not None and \
                     self.last_current_velocity is not None:
-            
-            
+
             # The car
             car = self.last_current_pose
             
@@ -145,11 +145,9 @@ class WaypointUpdater(object):
             selected_waypoints = self.last_base_waypoints.waypoints[forward_wp_id : forward_wp_id + LOOKAHEAD_WPS]
             
             # Check for obstacles ahead
-            is_obstacle_ahead = True if forward_wp_id < self.traffic_wp else False
+            is_obstacle_ahead = True if forward_wp_id < self.traffic_wp < forward_wp_id + LOOKAHEAD_WPS else False
             obstacle_id = self.traffic_wp  - forward_wp_id if is_obstacle_ahead else -1
-            
-            print("CAR CURRENTLY AT {} \t OBSTACLE AT {}".format(forward_wp_id, self.traffic_wp))
-            
+
             if is_obstacle_ahead:
                 selected_waypoints = self.decelerate(car, selected_waypoints, obstacle_id)
             else:

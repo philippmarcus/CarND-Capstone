@@ -11,6 +11,7 @@ import tf
 import cv2
 import yaml
 import math
+import numpy as np
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -75,8 +76,7 @@ class TLDetector(object):
         
         self.has_image = True
         self.camera_image = msg
-        light_wp, state = self.process_traffic_lights()
-        print("RECEIVED light_wp ", light_wp, " STATE ", state)
+        light_wp, state = self.process_traffic_lights(msg)
 
         '''
         Publish upcoming red lights at camera frequency.
@@ -95,47 +95,17 @@ class TLDetector(object):
         else:
             self.upcoming_red_light_pub.publish(Int32(self.last_wp))
         self.state_count += 1
-
-    def get_closest_waypoint(self, car):
-        """Identifies the closest path waypoint to the given position
-            https://en.wikipedia.org/wiki/Closest_pair_of_points_problem
-        Args:
-            pose (Pose): position to match a waypoint to
-
-        Returns:
-            int: index of the closest waypoint in self.waypoints
-
-        """ 
-        # Catch invalid states
-        if self.waypoints is None:
-            return -1
-        
-        # Code copied from waypoint updater
-        # compute global heading angle of car
-        quaternion = (car.orientation.x, car.orientation.y, car.orientation.z, car.orientation.w)
-        _, _, car_yaw = tf.transformations.euler_from_quaternion(quaternion)  
-
-        # Find index of closest candidate waypoint
-        closest_idx = -1
-        closest_dist = 999999999999
-
-        for idx in range(len(self.waypoints)):
-            #if wp_is_candidate[idx] and wp_rel_dist[idx] < closest_dist:
-            wp = self.waypoints[idx]
-
-            # Check if it has a smaller distance than the observed WPs
-            this_wp_dist = math.sqrt((wp.pose.pose.position.y - car.position.y)**2 + \
-                                     (wp.pose.pose.position.x - car.position.x)**2)
-            if this_wp_dist < closest_dist:
-
-                wp_glob_angle = math.atan2(wp.pose.pose.position.y - car.position.y,\
-                                           wp.pose.pose.position.x - car.position.x)
-
-                # Check if the wp is in front of the car
-                if abs(car_yaw - wp_glob_angle) > math.pi/4:
-                    closest_idx +=1
-                    closest_dist = this_wp_dist
-        return closest_idx
+    
+    """
+    Returns the id of the waypoint in waypoints that is closest to (x,y)
+    """
+    def closest_waypoint_id(self, waypoints, x, y):    
+        # Euclidean distance lamba function
+        dist = lambda wp, x, y: math.sqrt((wp.pose.pose.position.y - y)**2 + \
+                                          (wp.pose.pose.position.x - x)**2)
+        # Distance for each waypoint
+        wp_distances = [dist(wp, x, y) for wp in waypoints]
+        return np.argmin(wp_distances)
 
     def get_light_state(self, light):
         """Determines the current color of the traffic light
@@ -156,61 +126,52 @@ class TLDetector(object):
         #Get classification
         return self.light_classifier.get_classification(cv_image)
 
-    def process_traffic_lights(self):
+    def process_traffic_lights(self, msg):
         """Finds closest visible traffic light, if one exists, and determines its
             location and color
+            
+        Args:
+            msg: Latest camera image received from the car
 
         Returns:
             int: index of waypoint closes to the upcoming stop line for a traffic light (-1 if none exists)
             int: ID of traffic light color (specified in styx_msgs/TrafficLight)
 
         """
+        # Check if needed input is already available
+        if self.waypoints is None or self.pose is None or self.lights is None:
+            return -1, TrafficLight.UNKNOWN
 
+        # Closest waypoint to the vehicle
+        vehicle_x = self.pose.pose.position.x
+        vehicle_y = self.pose.pose.position.y
+        vehicle_wp_id = self.closest_waypoint_id(self.waypoints, vehicle_x, vehicle_y)  
         
-        light = None
-
-        # List of positions that correspond to the line to stop in front of for a given intersection
+        # Find closest waypoint for each stop line
         stop_line_positions = self.config['stop_line_positions']
-        if(self.pose):
-            car_position = self.get_closest_waypoint(self.pose.pose)
-        
-        if self.waypoints is None or car_position is None or self.lights is None:
-            print("No car position or waypoints available...")
+        stop_line_wp_ids = [self.closest_waypoint_id(self.waypoints, x, y) for (x,y) in stop_line_positions]
+
+        # Return if no waypoint infront of the vehicle was found or only too far away
+        if (max(stop_line_wp_ids) < vehicle_wp_id) or (min(stop_line_wp_ids) > vehicle_wp_id + 200):
             return -1, TrafficLight.UNKNOWN
         
-        # Find waypoint id that is nearest to the next traffic light
-        light_wp = -1
-        closest_wp_dist = 999999999
-        # iterate over the next waypoints
-        for idx in range(car_position, car_position+200):
-            # Iterate over all traffic lights a
-            for tl_id in range(len(self.lights)):
-                x = self.lights[tl_id].pose.pose.position.x
-                y = self.lights[tl_id].pose.pose.position.y
-                
-                wpx = self.waypoints[idx].pose.pose.position.x
-                wpy = self.waypoints[idx].pose.pose.position.y
-                light_wp_dist = math.sqrt((y - wpy)**2 + (x - wpx)**2)
-                
-                if light_wp_dist < closest_wp_dist and light_wp_dist < 10.:
-                    light_wp = idx
-                    closest_wp_dist = light_wp_dist
-                    light = self.lights[tl_id]
-        print("closest traffic light at waypoint ", light_wp, " car currently at", car_position)     
+        # Closest stop line infront of the vehicle
+        stop_line_wp_id = min(filter(lambda id: id > vehicle_wp_id, stop_line_wp_ids))
+        # Find closest waypoint for each traffic light
+        traffic_light_wp_ids = [self.closest_waypoint_id(self.waypoints, \
+                                                         tl.pose.pose.position.x, \
+                                                         tl.pose.pose.position.y)  
+                                for tl in self.lights]
+
+        # Select traffic light candidates, i.e. behind the stop line
+        tl_candidate_wp_ids, t_candidate_lights = zip(*filter(lambda (id, light): id > stop_line_wp_id, zip(traffic_light_wp_ids,\
+                                                                                                         self.lights)))
+        light = t_candidate_lights[np.argmin(tl_candidate_wp_ids)]
         
-        # Find closest TL from stream
-        
-        for tl in self.lights:
-            tl.pose.pose.position.x
-            tl.pose.pose.position.y
-            tl.state
-        
-        if light:
-            state = self.get_light_state(light)
-            state = light.state # TODO debug only
-            return light_wp, state
-        #self.waypoints = None
-        return light_wp, TrafficLight.UNKNOWN
+        # closes
+        state = self.get_light_state(light)
+        state = light.state # TODO debug only.
+        return stop_line_wp_id, state # return the stop line,  not the traffic light
 
 if __name__ == '__main__':
     try:
