@@ -10,35 +10,24 @@ import math
 
 class Controller(object):
     def __init__(self, *args, **kwargs):
-        # TODO: Implement
-        
-        # read out params
-        vehicle_mass = rospy.get_param('~vehicle_mass')
-        fuel_capacity = rospy.get_param('~fuel_capacity')
-        brake_deadband = rospy.get_param('~brake_deadband')
-        decel_limit = rospy.get_param('~decel_limit')
-        accel_limit = rospy.get_param('~accel_limit')
-        wheel_radius = rospy.get_param('~wheel_radius')
-        wheel_base = rospy.get_param('~wheel_base')
-        steer_ratio = rospy.get_param('~steer_ratio')
-        max_lat_accel = rospy.get_param('~max_lat_accel')
-        max_steer_angle = rospy.get_param('~max_steer_angle')
         min_speed = 0.02
-        
-        """
-        Idea:
-        - Create a PID controller for throttle, break, steer
-        - The PID controllers use a low-pass to filter the output
-        """
-                
+ 
         # Define controllers @TODO Tune parameters
-        self.controller_steer = YawController(wheel_base, steer_ratio, min_speed, max_lat_accel, max_steer_angle)  
-        self.controller_acceleration = PID(kp=1.0, ki=1.0, kd=1.0, mn=rospy.get_param('~decel_limit'), mx=rospy.get_param('~accel_limit'))
+        self.controller_steer = YawController(rospy.get_param('~wheel_base'), \
+                                              rospy.get_param('~steer_ratio'), \
+                                              min_speed, \
+                                              rospy.get_param('~max_lat_accel'),\
+                                              rospy.get_param('~max_steer_angle'))  
+        self.controller_acceleration = PID(kp=1.0, ki=1.0, kd=5.0, mn=rospy.get_param('~decel_limit'), mx=rospy.get_param('~accel_limit'))
 
         # Define low pass filters @TODO Tune parameters
         self.lowpass_steer = LowPassFilter(tau=5.0, ts=1.0)
-        self.lowpass_acceleration = LowPassFilter(tau=2.0, ts=1.0)        
-        pass
+        self.lowpass_acceleration = LowPassFilter(tau=10.0, ts=1.0)        
+        return
+    
+    # Resets all controllers
+    def reset(self):
+        self.controller_acceleration.reset()
     
     """
     Computes x,y magnitude for each object that brings
@@ -59,7 +48,7 @@ class Controller(object):
         
         # Velocity error - steered by acceleration
         error_vel = desired_velocity - current_velocity 
-        print("desired_velocity= {} \t current_velocity= {} \t error_vel={}".format(desired_velocity, current_velocity, error_vel))
+        #print("desired_velocity= {} \t current_velocity= {} \t error_vel={}".format(desired_velocity, current_velocity, error_vel))
 
         # Steering Command
         cmd_steer = self.controller_steer.get_steering(desired_velocity, desired_angular_velocity, current_velocity)

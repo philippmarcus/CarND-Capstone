@@ -26,7 +26,9 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 WAYPOINT_HZ = 10
 MAX_DECELERATION = rospy.get_param('/dbw_node/decel_limit')* 0.5
-HALT_DISTANCE = 5.
+HALT_DISTANCE = 2.5
+MAX_SPEED_MiPH = rospy.get_param('/waypoint_loader/velocity')
+
 
 class WaypointUpdater(object):
     def __init__(self):
@@ -102,7 +104,7 @@ class WaypointUpdater(object):
     def normal_speed(self, car, selected_waypoints):
         #print("NORMAL SPEED")
         # Update the speed of all waypoints to maximum speed
-        max_speed = 48. * 1609.340 / (60. * 60.)
+        max_speed = MAX_SPEED_MiPH * 1609.340 / (60. * 60.)
         for i in range(len(selected_waypoints)):
             self.set_waypoint_velocity(selected_waypoints, i, max_speed)
         return selected_waypoints
@@ -115,7 +117,7 @@ class WaypointUpdater(object):
         car_vx = self.last_current_velocity.twist.linear.x
         car_vy = self.last_current_velocity.twist.linear.y
         car_speed = math.sqrt(car_vx **2 + car_vy**2)
-        max_speed = 48. * 1609.340 / (60. * 60.)
+        max_speed = MAX_SPEED_MiPH * 1609.340 / (60. * 60.)
         #print ("CURRENT CAR SPEED - {}".format(car_speed))
         
         # all waypoints after the obstacle to 0
@@ -144,12 +146,18 @@ class WaypointUpdater(object):
             forward_wp_id = self.closest_forward_waypoint(car)
             selected_waypoints = self.last_base_waypoints.waypoints[forward_wp_id : forward_wp_id + LOOKAHEAD_WPS]
             
-            # Check for obstacles ahead
-            is_obstacle_ahead = True if forward_wp_id < self.traffic_wp < forward_wp_id + LOOKAHEAD_WPS else False
+            # Check for obstacles ahead - self.traffic_wp holds halt line of red traffic light ahead
+            is_obstacle_ahead = True if 0 < self.traffic_wp < forward_wp_id + LOOKAHEAD_WPS else False
             obstacle_id = self.traffic_wp  - forward_wp_id if is_obstacle_ahead else -1
 
             if is_obstacle_ahead:
-                selected_waypoints = self.decelerate(car, selected_waypoints, obstacle_id)
+               if obstacle_id < 0:
+                    # EMERGENCY BRAKE
+                    for i in range(len(selected_waypoints)):
+                        self.set_waypoint_velocity(selected_waypoints, i, 0.0)
+               else:
+                    # Normal brake
+                    selected_waypoints = self.decelerate(car, selected_waypoints, obstacle_id)
             else:
                 selected_waypoints = self.normal_speed(car, selected_waypoints)
 
@@ -159,7 +167,6 @@ class WaypointUpdater(object):
             lane.header.stamp = rospy.Time(0)
             lane.waypoints = selected_waypoints
             self.final_waypoints_pub.publish(lane)
-        # find out the closest forward waypoinit
         pass
 
     def traffic_cb(self, msg):

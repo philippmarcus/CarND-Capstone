@@ -145,12 +145,42 @@ class TLDetector(object):
         # Closest waypoint to the vehicle
         vehicle_x = self.pose.pose.position.x
         vehicle_y = self.pose.pose.position.y
-        vehicle_wp_id = self.closest_waypoint_id(self.waypoints, vehicle_x, vehicle_y)  
+        vehicle_wp_id = self.closest_waypoint_id(self.waypoints, vehicle_x, vehicle_y)
         
-        # Find closest waypoint for each stop line
+        # Select closest traffic light in front of the vehicle
+        traffic_light_wp_ids = [self.closest_waypoint_id(self.waypoints, \
+                                                         tl.pose.pose.position.x, \
+                                                         tl.pose.pose.position.y)  
+                                for tl in self.lights]
+        
+        # No future traffic light comming
+        if (max(traffic_light_wp_ids) < vehicle_wp_id):
+            return -1, TrafficLight.UNKNOWN
+        
+        # Select traffic light candidates, i.e. infront of the vehicle
+        tl_candidate_wp_ids, tl_candidate_lights, light_ids = zip(*filter(lambda (id, light, light_id): id > vehicle_wp_id, zip(traffic_light_wp_ids,\
+                                                                                                                                   self.lights, \
+                                                                                                                                   range(len(self.lights)))))
+        # Select traffic light from candidates
+        light = tl_candidate_lights[np.argmin(tl_candidate_wp_ids)]
+        light_id = light_ids[np.argmin(tl_candidate_wp_ids)]
+        traffic_light_wp_id = min(tl_candidate_wp_ids)
+        
+        # No traffic light was found within the lookaehad distance
+        if (traffic_light_wp_id  - vehicle_wp_id > 200):
+            return -1, TrafficLight.UNKNOWN
+        
+        # Find closest waypoint for selected traffic light
         stop_line_positions = self.config['stop_line_positions']
-        stop_line_wp_ids = [self.closest_waypoint_id(self.waypoints, x, y) for (x,y) in stop_line_positions]
+        stopline_x = stop_line_positions[light_id][0]
+        stopline_y = stop_line_positions[light_id][1]
+        stop_line_wp_id = self.closest_waypoint_id(self.waypoints, stopline_x, stopline_y)
+        
+        # Vehicle already passed the stop line and is in the intersection! Emergency Brake!
+        if stop_line_wp_id < vehicle_wp_id:
+            stop_line_wp_id = vehicle_wp_id
 
+        """
         # Return if no waypoint infront of the vehicle was found or only too far away
         if (max(stop_line_wp_ids) < vehicle_wp_id) or (min(stop_line_wp_ids) > vehicle_wp_id + 200):
             return -1, TrafficLight.UNKNOWN
@@ -167,6 +197,7 @@ class TLDetector(object):
         tl_candidate_wp_ids, t_candidate_lights = zip(*filter(lambda (id, light): id > stop_line_wp_id, zip(traffic_light_wp_ids,\
                                                                                                          self.lights)))
         light = t_candidate_lights[np.argmin(tl_candidate_wp_ids)]
+        """
         
         # closes
         state = self.get_light_state(light)
