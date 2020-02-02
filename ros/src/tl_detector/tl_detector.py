@@ -12,6 +12,7 @@ import cv2
 import yaml
 import math
 import numpy as np
+from light_classification.tl_data_collector import TLDataCollector
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -50,6 +51,11 @@ class TLDetector(object):
         self.last_state = TrafficLight.UNKNOWN
         self.last_wp = -1
         self.state_count = 0
+        
+        # Needed for ML training data collection
+        if rospy.get_param("~ml_data_collection"):
+            print("COLLECTING ML TRAINING DATA")
+            self.ml_training_data = TLDataCollector()
 
         rospy.spin()
 
@@ -77,6 +83,18 @@ class TLDetector(object):
         self.has_image = True
         self.camera_image = msg
         light_wp, state = self.process_traffic_lights(msg)
+        
+        # Special case for ML training data collection
+        if rospy.get_param("~ml_data_collection") and (self.pose is not None):
+            # Collect data
+            car_pos_x = self.pose.pose.position.x
+            car_pos_y = self.pose.pose.position.y
+            
+            light_x = self.waypoints[light_wp].pose.pose.position.x if light_wp != -1 else -1
+            light_y = self.waypoints[light_wp].pose.pose.position.y if light_wp != -1 else -1
+            
+            cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
+            self.ml_training_data.process_image(cv_image, state, light_x, light_y, car_pos_x, car_pos_y)
 
         '''
         Publish upcoming red lights at camera frequency.
@@ -122,7 +140,7 @@ class TLDetector(object):
             return False
 
         cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
-
+           
         #Get classification
         return self.light_classifier.get_classification(cv_image)
 
@@ -152,7 +170,7 @@ class TLDetector(object):
                                                          tl.pose.pose.position.x, \
                                                          tl.pose.pose.position.y)  
                                 for tl in self.lights]
-        
+
         # No future traffic light comming
         if (max(traffic_light_wp_ids) < vehicle_wp_id):
             return -1, TrafficLight.UNKNOWN
@@ -165,10 +183,11 @@ class TLDetector(object):
         light = tl_candidate_lights[np.argmin(tl_candidate_wp_ids)]
         light_id = light_ids[np.argmin(tl_candidate_wp_ids)]
         traffic_light_wp_id = min(tl_candidate_wp_ids)
-        
+                
         # No traffic light was found within the lookaehad distance
         if (traffic_light_wp_id  - vehicle_wp_id > 200):
             return -1, TrafficLight.UNKNOWN
+        
         
         # Find closest waypoint for selected traffic light
         stop_line_positions = self.config['stop_line_positions']
@@ -179,29 +198,17 @@ class TLDetector(object):
         # Vehicle already passed the stop line and is in the intersection! Emergency Brake!
         if stop_line_wp_id < vehicle_wp_id:
             stop_line_wp_id = vehicle_wp_id
-
-        """
-        # Return if no waypoint infront of the vehicle was found or only too far away
-        if (max(stop_line_wp_ids) < vehicle_wp_id) or (min(stop_line_wp_ids) > vehicle_wp_id + 200):
-            return -1, TrafficLight.UNKNOWN
-        
-        # Closest stop line infront of the vehicle
-        stop_line_wp_id = min(filter(lambda id: id > vehicle_wp_id, stop_line_wp_ids))
-        # Find closest waypoint for each traffic light
-        traffic_light_wp_ids = [self.closest_waypoint_id(self.waypoints, \
-                                                         tl.pose.pose.position.x, \
-                                                         tl.pose.pose.position.y)  
-                                for tl in self.lights]
-
-        # Select traffic light candidates, i.e. behind the stop line
-        tl_candidate_wp_ids, t_candidate_lights = zip(*filter(lambda (id, light): id > stop_line_wp_id, zip(traffic_light_wp_ids,\
-                                                                                                         self.lights)))
-        light = t_candidate_lights[np.argmin(tl_candidate_wp_ids)]
-        """
         
         # closes
-        state = self.get_light_state(light)
-        state = light.state # TODO debug only.
+        state = None
+        # Set state depending on current operation mode (data collection or online mode)
+        if rospy.get_param("~ml_data_collection"):
+            # In ML training data collection mode
+            state = light.state # TODO debug only.
+        else:
+            # In operational mode
+            state = self.get_light_state(light)
+        
         return stop_line_wp_id, state # return the stop line,  not the traffic light
 
 if __name__ == '__main__':

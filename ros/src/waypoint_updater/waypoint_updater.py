@@ -142,13 +142,26 @@ class WaypointUpdater(object):
             # The car
             car = self.last_current_pose
             
+            wp_count = len(self.last_base_waypoints.waypoints)
+            
             # Select waypoints
             forward_wp_id = self.closest_forward_waypoint(car)
-            selected_waypoints = self.last_base_waypoints.waypoints[forward_wp_id : forward_wp_id + LOOKAHEAD_WPS]
+            #selected_waypoints = self.last_base_waypoints.waypoints[forward_wp_id : forward_wp_id + LOOKAHEAD_WPS]                                                                                                                              obstacle_id))
+            
+            selected_waypoints = []
+            is_obstacle_ahead = False
+            obstacle_id = -1
+            # Needed to allow the car to do several rounds
+            for i in range(LOOKAHEAD_WPS):
+                cur_wp_id = (forward_wp_id + i)%wp_count
+                selected_waypoints.append(self.last_base_waypoints.waypoints[cur_wp_id])
+                if cur_wp_id == self.traffic_wp:
+                    is_obstacle_ahead  = True
+                    obstacle_id = i
             
             # Check for obstacles ahead - self.traffic_wp holds halt line of red traffic light ahead
-            is_obstacle_ahead = True if 0 < self.traffic_wp < forward_wp_id + LOOKAHEAD_WPS else False
-            obstacle_id = self.traffic_wp  - forward_wp_id if is_obstacle_ahead else -1
+            #is_obstacle_ahead = True if 0 < self.traffic_wp < forward_wp_id + LOOKAHEAD_WPS else False
+            #obstacle_id = self.traffic_wp  - forward_wp_id if is_obstacle_ahead else -1
 
             if is_obstacle_ahead:
                if obstacle_id < 0:
@@ -160,6 +173,19 @@ class WaypointUpdater(object):
                     selected_waypoints = self.decelerate(car, selected_waypoints, obstacle_id)
             else:
                 selected_waypoints = self.normal_speed(car, selected_waypoints)
+            
+            print("forward_wp_id", forward_wp_id)
+            if forward_wp_id > 5465:
+                print("No waypoints selected. forward_wp_id={} \t self.traffic_wp={} \t is_obstacle_ahead={} \t obstacle_id={}".format(forward_wp_id, \
+                                                                                                                                       self.traffic_wp,\
+                                                                                                                                       is_obstacle_ahead, \
+                                                                                                                                       obstacle_id))
+ 
+            if len(selected_waypoints) == 0:
+                raise Exception("No waypoints selected. forward_wp_id={} \t self.traffic_wp={} \t is_obstacle_ahead={} \t obstacle_id={}".format(forward_wp_id, \
+                                                                                                                                                self.traffic_wp, \
+                                                                                                                                                is_obstacle_ahead, \
+                                                                                                                                                obstacle_id))
 
             # publish result
             lane = Lane()
@@ -190,18 +216,7 @@ class WaypointUpdater(object):
             dist += dl(waypoints[wp1].pose.pose.position, waypoints[i].pose.pose.position)
             wp1 = i
         return dist
-    
-    """
-    Compute the acceleration to transform speed v0 to speed v1
-    within a distance of delta_s
-    """
-    """
-    def get_acceleration(self, v0, v1, delta_s):
-        return (v1**2 - v0**2) / (2. * delta_s)
-    
-    def get_next_velocity(self, v0, a0, delta_s):
-        return math.sqrt(v0**2 + 2 * a0 * delta_s)
-    """
+
 
 if __name__ == '__main__':
     try:
