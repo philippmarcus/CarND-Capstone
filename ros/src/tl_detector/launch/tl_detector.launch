@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
     <node pkg="tl_detector" type="tl_detector.py" name="tl_detector" output="screen" cwd="node">
-    	<param name="ml_data_collection" value="true" />
+    	<param name="ml_data_collection" value="false" />
     </node>
 </launch>
