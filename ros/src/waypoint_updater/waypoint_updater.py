@@ -94,11 +94,17 @@ class WaypointUpdater(object):
             if this_wp_dist < closest_dist:
                 wp_glob_angle = math.atan2(wp.pose.pose.position.y - car.pose.position.y,\
                                            wp.pose.pose.position.x - car.pose.position.x)
-
+                
+                # calculate the smallest difference between the two angles
+                phi = min((2 * math.pi) - abs(wp_glob_angle - car_yaw), abs(car_yaw - wp_glob_angle))
+                
                 # Check if the wp is in front of the car
-                if abs(car_yaw - wp_glob_angle) > math.pi/4:
-                    closest_idx +=1
+                if phi < math.pi/2:
+                    closest_idx = idx
                     closest_dist = this_wp_dist
+                    
+        #if closest_dist > 30:
+        #    raise Exception("No waypoints selected. closest_idx={}, closest_dist={}".format(closest_idx,closest_dist))
         return closest_idx 
     
     def normal_speed(self, car, selected_waypoints):
@@ -146,23 +152,20 @@ class WaypointUpdater(object):
             
             # Select waypoints
             forward_wp_id = self.closest_forward_waypoint(car)
-            #selected_waypoints = self.last_base_waypoints.waypoints[forward_wp_id : forward_wp_id + LOOKAHEAD_WPS]                                                                                                                              obstacle_id))
-            
+
             selected_waypoints = []
             is_obstacle_ahead = False
             obstacle_id = -1
+            WP_ids = []
             # Needed to allow the car to do several rounds
             for i in range(LOOKAHEAD_WPS):
                 cur_wp_id = (forward_wp_id + i)%wp_count
+                WP_ids.append(cur_wp_id)
                 selected_waypoints.append(self.last_base_waypoints.waypoints[cur_wp_id])
                 if cur_wp_id == self.traffic_wp:
                     is_obstacle_ahead  = True
                     obstacle_id = i
             
-            # Check for obstacles ahead - self.traffic_wp holds halt line of red traffic light ahead
-            #is_obstacle_ahead = True if 0 < self.traffic_wp < forward_wp_id + LOOKAHEAD_WPS else False
-            #obstacle_id = self.traffic_wp  - forward_wp_id if is_obstacle_ahead else -1
-
             if is_obstacle_ahead:
                if obstacle_id < 0:
                     # EMERGENCY BRAKE
@@ -174,19 +177,16 @@ class WaypointUpdater(object):
             else:
                 selected_waypoints = self.normal_speed(car, selected_waypoints)
             
-            print("forward_wp_id", forward_wp_id)
-            if forward_wp_id > 5465:
-                print("No waypoints selected. forward_wp_id={} \t self.traffic_wp={} \t is_obstacle_ahead={} \t obstacle_id={}".format(forward_wp_id, \
-                                                                                                                                       self.traffic_wp,\
-                                                                                                                                       is_obstacle_ahead, \
-                                                                                                                                       obstacle_id))
- 
+            print("Closest car WP = {}. \t Obstacle WP = {}. Selected min WP = {}. Selected max WP = {}.".format(forward_wp_id, \
+                                                                                                                 obstacle_id, \
+                                                                                                                 min(WP_ids), \
+                                                                                                                 max(WP_ids)))
             if len(selected_waypoints) == 0:
-                raise Exception("No waypoints selected. forward_wp_id={} \t self.traffic_wp={} \t is_obstacle_ahead={} \t obstacle_id={}".format(forward_wp_id, \
-                                                                                                                                                self.traffic_wp, \
-                                                                                                                                                is_obstacle_ahead, \
-                                                                                                                                                obstacle_id))
-
+                raise Exception("No waypoints selected. forward_wp_id={} \t \
+                                 self.traffic_wp={} \t is_obstacle_ahead={} \t \
+                                 obstacle_id={}".format(forward_wp_id,self.traffic_wp,is_obstacle_ahead,obstacle_id))
+            
+            
             # publish result
             lane = Lane()
             lane.header.frame_id = '/world'

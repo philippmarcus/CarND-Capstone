@@ -18,11 +18,11 @@ class Controller(object):
                                               min_speed, \
                                               rospy.get_param('~max_lat_accel'),\
                                               rospy.get_param('~max_steer_angle'))  
-        self.controller_acceleration = PID(kp=1.0, ki=1.0, kd=5.0, mn=rospy.get_param('~decel_limit'), mx=rospy.get_param('~accel_limit'))
+        self.controller_acceleration = PID(kp=5., ki=.5, kd=.5, mn=rospy.get_param('~decel_limit'), mx=rospy.get_param('~accel_limit'))
 
         # Define low pass filters @TODO Tune parameters
-        self.lowpass_steer = LowPassFilter(tau=5.0, ts=1.0)
-        self.lowpass_acceleration = LowPassFilter(tau=10.0, ts=1.0)        
+        self.lowpass_steer = LowPassFilter(tau=3., ts=1.0)
+        self.lowpass_acceleration = LowPassFilter(tau=5., ts=1.0)        
         return
     
     # Resets all controllers
@@ -47,14 +47,15 @@ class Controller(object):
         current_velocity = self._get_magn(current_linear_v)
         
         # Velocity error - steered by acceleration
-        error_vel = desired_velocity - current_velocity 
+        
         #print("desired_velocity= {} \t current_velocity= {} \t error_vel={}".format(desired_velocity, current_velocity, error_vel))
 
         # Steering Command
         cmd_steer = self.controller_steer.get_steering(desired_velocity, desired_angular_velocity, current_velocity)
         cmd_steer = self.lowpass_steer.filt(cmd_steer)
 
-        # Acceleration Command
+        # Acceleration Command - slow down when steering
+        error_vel = (desired_velocity - current_velocity)
         cmd_accel = self.controller_acceleration.step(error_vel, sample_time)
         cmd_accel = self.lowpass_acceleration.filt(cmd_accel)
 
@@ -65,6 +66,10 @@ class Controller(object):
             # Accelerate proportional to accel cmd
             cmd_throttle = cmd_accel / rospy.get_param('~accel_limit')
         else:
+            
+            if abs(cmd_accel) < rospy.get_param('~brake_deadband'):
+                cmd_accel = 0.0
+            
             # Brake - compute needed torque
             brake_torque =  rospy.get_param('~wheel_radius') * (rospy.get_param('~vehicle_mass') + rospy.get_param('~fuel_capacity')*GAS_DENSITY)  * -1. * cmd_accel
             

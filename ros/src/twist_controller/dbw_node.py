@@ -37,11 +37,11 @@ class DBWNode(object):
 
         # Create Publishers for controll commands
         self.steer_pub = rospy.Publisher('/vehicle/steering_cmd',
-                                         SteeringCmd, queue_size=2)
+                                         SteeringCmd, queue_size=1)
         self.throttle_pub = rospy.Publisher('/vehicle/throttle_cmd',
-                                            ThrottleCmd, queue_size=2)
+                                            ThrottleCmd, queue_size=1)
         self.brake_pub = rospy.Publisher('/vehicle/brake_cmd',
-                                         BrakeCmd, queue_size=2)
+                                         BrakeCmd, queue_size=1)
 
         # Create `Controller` object
         self.controller = Controller()
