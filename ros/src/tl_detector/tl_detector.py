@@ -54,7 +54,7 @@ class TLDetector(object):
         
         # Needed for ML training data collection
         if rospy.get_param("~ml_data_collection"):
-            print("COLLECTING ML TRAINING DATA")
+            rospy.loginfo("COLLECTING ML TRAINING DATA")
             self.ml_training_data = TLDataCollector()
 
         rospy.spin()
