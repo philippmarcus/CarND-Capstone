@@ -1,6 +1,7 @@
 from collections import namedtuple
 import cv2
 import math
+import rospy
 
 import glob
 import csv
@@ -28,7 +29,7 @@ class TLDataCollector(object):
             self.data.append(SimulatorImage(img=file_info[0], gt_status=file_info[1], dist=file_info[2][:-4]))
             self.data_statistics[file_info[1]] += 1
                         
-        print("===>EXISTING DATA: GREEN={} \t YELLOW={} \t RED={} \t UNKNOWN={}".format(self.data_statistics['GREEN'], \
+        rospy.loginfo("===>EXISTING DATA: GREEN={} \t YELLOW={} \t RED={} \t UNKNOWN={}".format(self.data_statistics['GREEN'], \
                                                                                         self.data_statistics['YELLOW'], \
                                                                                         self.data_statistics['RED'], \
                                                                                         self.data_statistics['UNKOWN']))
@@ -93,7 +94,7 @@ class TLDataCollector(object):
         
         if len(self.data) % 10 == 0:
             # Log output every 10 iterations
-            print("===>EXISTING DATA: GREEN={} \t YELLOW={} \t RED={} \t UNKNOWN={}".format(self.data_statistics['GREEN'], \
+            rospy.loginfo("===>EXISTING DATA: GREEN={} \t YELLOW={} \t RED={} \t UNKNOWN={}".format(self.data_statistics['GREEN'], \
                                                                                             self.data_statistics['YELLOW'], \
                                                                                             self.data_statistics['RED'], \
                                                                                             self.data_statistics['UNKOWN']))

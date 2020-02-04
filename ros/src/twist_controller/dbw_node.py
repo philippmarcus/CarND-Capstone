@@ -107,7 +107,7 @@ class DBWNode(object):
                                                                     sample_time)
                 
                 # Publish the steering commands
-                print("COMMAND throttle= {}, brake= {}, steering={}".format(throttle, brake, steering))
+                rospy.loginfo("COMMAND throttle= {}, brake= {}, steering={}".format(throttle, brake, steering))
                 self.publish(throttle, brake, steering)
             rate.sleep()
 

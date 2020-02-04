@@ -103,8 +103,6 @@ class WaypointUpdater(object):
                     closest_idx = idx
                     closest_dist = this_wp_dist
                     
-        #if closest_dist > 30:
-        #    raise Exception("No waypoints selected. closest_idx={}, closest_dist={}".format(closest_idx,closest_dist))
         return closest_idx 
     
     def normal_speed(self, car, selected_waypoints):
@@ -116,15 +114,15 @@ class WaypointUpdater(object):
         return selected_waypoints
     
     def decelerate(self, car, selected_waypoints, obstacle_id):
-        #print("BRAKING")
-        print("obstacle_id={} \t len(selected_waypoints)={}".format(obstacle_id, len(selected_waypoints)))
+        rospy.loginfo("BRAKING")
+        rospy.loginfo("obstacle_id={} \t len(selected_waypoints)={}".format(obstacle_id, len(selected_waypoints)))
+        
         assert 0 <= obstacle_id <= len(selected_waypoints)
         
         car_vx = self.last_current_velocity.twist.linear.x
         car_vy = self.last_current_velocity.twist.linear.y
         car_speed = math.sqrt(car_vx **2 + car_vy**2)
         max_speed = MAX_SPEED_MiPH * 1609.340 / (60. * 60.)
-        #print ("CURRENT CAR SPEED - {}".format(car_speed))
         
         # all waypoints after the obstacle to 0
         for i in range(obstacle_id, len(selected_waypoints)):
@@ -134,7 +132,7 @@ class WaypointUpdater(object):
         for i in reversed(range(0, obstacle_id)):
             dist_to_obstacle = max(self.distance(selected_waypoints, i, obstacle_id) - HALT_DISTANCE, 0.0)
             this_wp_speed = min(math.sqrt(0.0 - 2. * MAX_DECELERATION * dist_to_obstacle), max_speed)
-            #print("--> wp {} \t set to speed {} \t (distance to obstacle is {})".format(i, this_wp_speed, dist_to_obstacle))
+
             self.set_waypoint_velocity(selected_waypoints, i, this_wp_speed)
         return selected_waypoints
     
@@ -177,7 +175,7 @@ class WaypointUpdater(object):
             else:
                 selected_waypoints = self.normal_speed(car, selected_waypoints)
             
-            print("Closest car WP = {}. \t Obstacle WP = {}. Selected min WP = {}. Selected max WP = {}.".format(forward_wp_id, \
+            rospy.loginfo("Closest car WP = {}. \t Obstacle WP = {}. Selected min WP = {}. Selected max WP = {}.".format(forward_wp_id, \
                                                                                                                  obstacle_id, \
                                                                                                                  min(WP_ids), \
                                                                                                                  max(WP_ids)))
